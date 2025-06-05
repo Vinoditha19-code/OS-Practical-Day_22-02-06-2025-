@@ -1,0 +1,99 @@
+/*Exersice_01
+There are parent process, shared memory and child process... The parent process should read the input (n,r). after reading the value the parent process should send the value through shared memory to child Process.. 
+The child process should print the factorial only... It should return the factorial value to shared memory... 
+And the shared memory send it to the parent process , after getting the factorial the parent process should print nCr and nPr
+*/
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <wait.h>
+
+struct shared_data {
+    int n;
+    int r;
+    unsigned long long fact_n;
+    unsigned long long fact_r;
+    unsigned long long fact_n_r;
+};
+
+// Function to calculate factorial
+unsigned long long factorial(int x) {
+    if (x <= 1) return 1;
+    unsigned long long f = 1;
+    for (int i = 2; i <= x; i++) {
+        f *= i;
+    }
+    return f;
+}
+
+// Child process function to compute factorials and print them
+void child_process(struct shared_data *data) {
+    int n = data->n;
+    int r = data->r;
+
+    data->fact_n = factorial(n);
+    data->fact_r = factorial(r);
+    data->fact_n_r = factorial(n - r);
+
+    printf("Child process factorials:\n");
+    printf("Factorial(%d) = %llu\n", n, data->fact_n);
+    printf("Factorial(%d) = %llu\n", r, data->fact_r);
+    printf("Factorial(%d) = %llu\n", n - r, data->fact_n_r);
+}
+
+int main() {
+    key_t key = ftok("shmfile", 65); // unique key
+    int shmid = shmget(key, sizeof(struct shared_data), 0666 | IPC_CREAT);
+    if (shmid == -1) {
+        perror("shmget failed");
+        exit(1);
+    }
+
+    struct shared_data *data = (struct shared_data *)shmat(shmid, NULL, 0);
+    if (data == (void *)-1) {
+        perror("shmat failed");
+        exit(1);
+    }
+
+    // Parent reads input
+    printf("Enter n and r: ");
+    scanf("%d %d", &data->n, &data->r);
+
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        perror("fork failed");
+        shmdt(data);
+        shmctl(shmid, IPC_RMID, NULL);
+        exit(1);
+    } else if (pid == 0) {
+        // Child process
+        child_process(data);
+        shmdt(data);
+        exit(0);
+    } else {
+        // Parent process waits
+        wait(NULL);
+
+        // Calculate nCr and nPr
+        unsigned long long nCr = data->fact_n / (data->fact_r * data->fact_n_r);
+        unsigned long long nPr = data->fact_n / data->fact_n_r;
+
+        printf("Parent process calculations:\n");
+        printf("nCr = %llu\n", nCr);
+        printf("nPr = %llu\n", nPr);
+
+        // Clean up shared memory
+        shmdt(data);
+        shmctl(shmid, IPC_RMID, NULL);
+    }
+
+    return 0;
+}
+
+
